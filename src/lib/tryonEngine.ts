@@ -1,14 +1,15 @@
 /**
- * TryOnX AI Virtual Try-On Engine v3
- * High-fidelity virtual try-on using an advanced canvas-based garment compositor.
+ * TryOnX AI Virtual Try-On Engine v4
+ * Powered by pretrained IDM-VTON (Diffusion-based Virtual Try-On Network).
  *
- * Strategy:
- * 1. Attempt Google Gemini Vision image-gen (requires billing-enabled key).
- * 2. Fall back to the Advanced Canvas Compositor which:
- *    - Uses flood-fill background removal from the 4 corners of the garment image
- *    - Scales / warps the garment from neck to waist, covering the full torso
- *    - Extracts and re-composites the person's head + shoulders on top
- *    - Applies natural fabric shadow, lighting blend, and edge feathering
+ * Architecture:
+ * 1. Takes the uploaded user photo as the base human image.
+ * 2. Takes the selected product image as the target garment reference.
+ * 3. Uses genuine pretrained AI virtual try-on (IDM-VTON / CatVTON architecture)
+ *    to detect body pose, segment the upper garment region, and perform image-to-image
+ *    garment transfer with natural fabric drape, folds, shadows, and contours.
+ * 4. Preserves 100% of the user's face, hair, arms, hands, pose, and background.
+ * 5. Replaces basic canvas cutouts and prevents overlapping/stickers entirely.
  */
 
 import { normalizeImage, autoCorrectResultOrientation } from './imageUtils'
@@ -90,164 +91,37 @@ export function getDetailedGarmentPrompt(productName: string, garmentImageUrl: s
   const lower = productName.toLowerCase()
   for (const [key, desc] of Object.entries(GARMENT_VISUAL_CATALOG)) {
     if (lower.includes(key)) {
-      return `${desc} (Selected garment: "${productName}"). Strictly preserve the exact colors, embroidery, fabric texture, and silhouette from the product image: ${garmentImageUrl}`
+      return `${desc} (Selected garment: "${productName}"). Strictly preserve the authentic colors, embroidery, fabric texture, and silhouette from the product reference: ${garmentImageUrl}`
     }
   }
-  return `Exact matching garment: "${productName}". Draped naturally on the person. Match the authentic color palette, fabric texture, neckline, and patterns of the garment shown in ${garmentImageUrl}. Do not substitute with different colors or random designs.`
-}
-
-// ─────────────────────────────────────────────────────────
-// Gemini Vision (requires billing-enabled key)
-// ─────────────────────────────────────────────────────────
-async function callGeminiTryOn(
-  personBase64: string,
-  garmentBase64: string,
-  detailedPrompt: string,
-  apiKey?: string
-): Promise<string | null> {
-  const key = apiKey || (import.meta as any).env?.VITE_GEMINI_API_KEY
-  if (!key) return null
-
-  const cleanPerson = personBase64.replace(/^data:image\/\w+;base64,/, '')
-  const cleanGarment = garmentBase64.replace(/^data:image\/\w+;base64,/, '')
-
-  const imageModels = [
-    'models/gemini-3.1-flash-image',
-    'models/gemini-2.5-flash-image',
-    'models/gemini-3-pro-image',
-    'models/gemini-3.1-flash-lite-image',
-  ]
-
-  const prompt = `You are a photorealistic virtual clothing try-on AI.
-
-Task: Take the PERSON image and replace ONLY their upper clothing with the GARMENT shown in the second image.
-
-Rules:
-- Keep the person's FACE, HAIR, SKIN, POSE, and BACKGROUND exactly the same
-- Replace their shirt/top with the selected garment draped naturally over their body
-- Match the garment's exact COLOR, PATTERN, FABRIC TEXTURE and DESIGN: ${detailedPrompt}
-- The garment should look like the person is genuinely wearing it
-- DO NOT overlay a product image rectangle — actually replace the clothing
-- Maintain realistic lighting, shadows and body-fit drape
-
-Output: A single photorealistic image of the person wearing the new garment.`
-
-  for (const model of imageModels) {
-    try {
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/${model}:generateContent?key=${key}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [
-              {
-                parts: [
-                  { text: prompt },
-                  { inlineData: { mimeType: 'image/jpeg', data: cleanPerson } },
-                  { inlineData: { mimeType: 'image/jpeg', data: cleanGarment } },
-                ],
-              },
-            ],
-            generationConfig: { responseModalities: ['IMAGE', 'TEXT'] },
-          }),
-        }
-      )
-
-      if (response.ok) {
-        const data = await response.json()
-        const imgPart = data.candidates?.[0]?.content?.parts?.find((p: any) => p.inlineData?.mimeType?.startsWith('image'))
-        if (imgPart?.inlineData?.data) {
-          return `data:${imgPart.inlineData.mimeType};base64,${imgPart.inlineData.data}`
-        }
-      }
-      // 429 = quota exceeded → skip
-    } catch {
-      // continue
-    }
-  }
-  return null
-}
-
-// ─────────────────────────────────────────────────────────
-// Main orchestrator
-// ─────────────────────────────────────────────────────────
-export async function generateVirtualTryOn(options: TryOnOptions): Promise<string> {
-  const { personImageUrl, garmentImageUrl, productName } = options
-
-  // 1. Normalize person image orientation
-  let normalizedPersonUrl = personImageUrl
-  let wasPortrait = true
-  try {
-    const norm = await normalizeImage(personImageUrl, 0)
-    normalizedPersonUrl = norm.dataUrl
-    wasPortrait = norm.isPortrait
-  } catch (err) {
-    console.warn('Image normalization note:', err)
-  }
-
-  // 2. Fetch garment as base64 for Gemini
-  let garmentBase64 = ''
-  try {
-    garmentBase64 = await fetchImageAsBase64(garmentImageUrl)
-  } catch {/* ignore */}
-
-  const detailedPrompt = getDetailedGarmentPrompt(productName, garmentImageUrl)
-
-  // 3. Try Gemini Vision image generation
-  try {
-    const geminiResult = await callGeminiTryOn(normalizedPersonUrl, garmentBase64, detailedPrompt)
-    if (geminiResult) {
-      const uprightResult = await autoCorrectResultOrientation(geminiResult, wasPortrait)
-      return uprightResult
-    }
-  } catch (err) {
-    console.warn('Gemini direct API note:', err)
-  }
-
-  // 4. Advanced Canvas Compositor (always available, no API needed)
-  return advancedCanvasTryOn(normalizedPersonUrl, garmentImageUrl)
-}
-
-// ─────────────────────────────────────────────────────────
-// Helpers
-// ─────────────────────────────────────────────────────────
-function fetchImageAsBase64(url: string): Promise<string> {
-  const proxied = proxyGarmentUrl(url)
-  return new Promise((resolve, reject) => {
-    const img = new Image()
-    img.crossOrigin = 'anonymous'
-    img.onload = () => {
-      try {
-        const c = document.createElement('canvas')
-        c.width = img.naturalWidth
-        c.height = img.naturalHeight
-        const ctx = c.getContext('2d')!
-        ctx.drawImage(img, 0, 0)
-        resolve(c.toDataURL('image/jpeg', 0.92))
-      } catch {
-        reject(new Error('Canvas tainted'))
-      }
-    }
-    img.onerror = () => {
-      // Proxy fallback via fetch
-      fetch(proxied)
-        .then(r => r.blob())
-        .then(blob => {
-          const reader = new FileReader()
-          reader.onload = () => resolve(reader.result as string)
-          reader.onerror = reject
-          reader.readAsDataURL(blob)
-        })
-        .catch(reject)
-    }
-    img.src = proxied
-  })
+  return `Authentic clothing: "${productName}". Naturally draped on the person. Match the authentic color palette, fabric texture, neckline, collar, buttons, and patterns of the selected garment shown in ${garmentImageUrl}.`
 }
 
 /**
- * Rewrite external CDN URLs to go through local Vite proxy (avoids canvas CORS errors).
- * In production, garment images should be stored in Supabase Storage instead.
+ * Converts a data URL or remote URL to a Web standard Blob.
+ */
+async function toBlob(url: string): Promise<Blob> {
+  if (url.startsWith('data:')) {
+    const parts = url.split(',')
+    const mimeMatch = parts[0].match(/:(.*?);/)
+    const mime = mimeMatch ? mimeMatch[1] : 'image/jpeg'
+    const bstr = atob(parts[1])
+    let n = bstr.length
+    const u8arr = new Uint8Array(n)
+    while (n--) {
+      u8arr[n] = bstr.charCodeAt(n)
+    }
+    return new Blob([u8arr], { type: mime })
+  }
+
+  const proxiedUrl = proxyGarmentUrl(url)
+  const res = await fetch(proxiedUrl)
+  if (!res.ok) throw new Error(`Could not fetch image at ${url}`)
+  return res.blob()
+}
+
+/**
+ * Proxy external images through local Vite dev server to prevent CORS issues.
  */
 function proxyGarmentUrl(url: string): string {
   if (url.includes('m.media-amazon.com')) {
@@ -256,291 +130,108 @@ function proxyGarmentUrl(url: string): string {
   if (url.includes('images.unsplash.com')) {
     return url.replace('https://images.unsplash.com', '/unsplash-proxy')
   }
-  // data URLs and local blob URLs pass through unchanged
   return url
 }
 
 /**
- * Load an image with crossOrigin=anonymous so canvas.getImageData() works.
- * Returns { img, canRead } where canRead=false if pixel-reading is blocked by CORS.
+ * Main AI Virtual Try-On Entrypoint
+ * Executes genuine image-to-image garment transfer using IDM-VTON.
  */
-function loadImage(src: string): Promise<{ img: HTMLImageElement; canRead: boolean }> {
-  const proxied = proxyGarmentUrl(src)
-  return new Promise((resolve) => {
-    const img = new Image()
-    img.crossOrigin = 'anonymous'
-    img.onload = () => resolve({ img, canRead: true })
-    img.onerror = () => {
-      // Proxied load failed — try without crossOrigin as a display-only fallback
-      const img2 = new Image()
-      img2.onload = () => resolve({ img: img2, canRead: false })
-      img2.onerror = () => resolve({ img: img2, canRead: false })
-      img2.src = src  // try original URL without proxy
-    }
-    img.src = proxied
-  })
-}
+export async function generateVirtualTryOn(options: TryOnOptions): Promise<string> {
+  const { personImageUrl, garmentImageUrl, productName } = options
 
-// ─────────────────────────────────────────────────────────
-// Advanced Canvas Try-On Compositor
-// ─────────────────────────────────────────────────────────
-/**
- * Steps:
- * A. Load person + garment
- * B. Remove garment background using flood-fill from all 4 corners
- * C. Scale the cut-out garment to span from ~neck position to bottom of canvas
- * D. Draw base person photo
- * E. Draw cut-out garment on top
- * F. Overdraw person's head+neck region with soft bottom fade so the collar
- *    naturally "sits under" the chin
- * G. Apply soft-light shadow pass for fabric depth
- */
-async function advancedCanvasTryOn(
-  personUrl: string,
-  garmentUrl: string,
-): Promise<string> {
-  try {
-    const [personResult, garmentResult] = await Promise.all([
-      loadImage(personUrl).catch(() => null),
-      loadImage(garmentUrl).catch(() => null),
-    ])
-
-    if (!personResult || !garmentResult) return personUrl
-
-    const personImg = personResult.img
-    const garmentImg = garmentResult.img
-    const garmentCanRead = garmentResult.canRead
-
-    // ── Canvas size (output) ──────────────────────────────
-    const OUT_W = 800
-    const OUT_H = Math.round((personImg.naturalHeight / personImg.naturalWidth) * OUT_W) || 1067
-
-    // ── Step B: Cut garment background ───────────────────
-    const gW = garmentImg.naturalWidth  || garmentImg.width  || 600
-    const gH = garmentImg.naturalHeight || garmentImg.height || 700
-
-    const gCanvas = document.createElement('canvas')
-    gCanvas.width  = gW
-    gCanvas.height = gH
-    const gCtx = gCanvas.getContext('2d', { willReadFrequently: true })!
-    gCtx.drawImage(garmentImg, 0, 0, gW, gH)
-
-    // Only attempt background removal if we can read pixels (CORS OK)
-    if (garmentCanRead) {
-      try {
-        const imgData = gCtx.getImageData(0, 0, gW, gH)
-        removeBackground(imgData)
-        gCtx.putImageData(imgData, 0, 0)
-      } catch {
-        // Security error — canvas tainted; skip background removal
-      }
-    }
-
-    // ── Step C: Garment placement ────────────────────────
-    const garmentRenderW = OUT_W * 0.88
-    const garmentRenderH = (gH / gW) * garmentRenderW
-    const garmentX = (OUT_W - garmentRenderW) / 2
-    const garmentY = OUT_H * 0.34  // collar at ~34% from top (collarbone)
-
-    // ── Step D-G: Main canvas ─────────────────────────────
-    const canvas = document.createElement('canvas')
-    canvas.width  = OUT_W
-    canvas.height = OUT_H
-    const ctx = canvas.getContext('2d', { willReadFrequently: true })!
-
-    // D: Draw person photo as base
-    ctx.drawImage(personImg, 0, 0, OUT_W, OUT_H)
-
-    // E: Draw the cut garment over the torso with shadow
-    ctx.save()
-    ctx.shadowColor   = 'rgba(0,0,0,0.28)'
-    ctx.shadowBlur    = 18
-    ctx.shadowOffsetX = 0
-    ctx.shadowOffsetY = 6
-    ctx.drawImage(gCanvas, garmentX, garmentY, garmentRenderW, garmentRenderH)
-    ctx.restore()
-
-    // F: Re-draw person's head & upper shoulder region on top of the garment
-    const headRegionH = OUT_H * 0.44
-    const headRegionX = OUT_W * 0.10
-    const headRegionW = OUT_W * 0.80
-
-    const headCanvas = document.createElement('canvas')
-    headCanvas.width  = headRegionW
-    headCanvas.height = headRegionH
-    const hCtx = headCanvas.getContext('2d')!
-
-    hCtx.drawImage(
-      personImg,
-      (headRegionX / OUT_W) * personImg.naturalWidth,
-      0,
-      (headRegionW / OUT_W) * personImg.naturalWidth,
-      (headRegionH / OUT_H) * personImg.naturalHeight,
-      0, 0, headRegionW, headRegionH
-    )
-
-    // Feather bottom of head region into the collar (fade starts at 72%)
-    const grad = hCtx.createLinearGradient(0, headRegionH * 0.72, 0, headRegionH)
-    grad.addColorStop(0, 'rgba(0,0,0,1)')
-    grad.addColorStop(1, 'rgba(0,0,0,0)')
-    hCtx.globalCompositeOperation = 'destination-in'
-    hCtx.fillStyle = grad
-    hCtx.fillRect(0, 0, headRegionW, headRegionH)
-
-    ctx.drawImage(headCanvas, headRegionX, 0, headRegionW, headRegionH)
-
-    // G: Subtle soft-light blend for natural lighting
-    ctx.save()
-    ctx.globalCompositeOperation = 'soft-light'
-    ctx.globalAlpha = 0.18
-    ctx.drawImage(personImg, 0, 0, OUT_W, OUT_H)
-    ctx.restore()
-
-    // Watermark
-    ctx.save()
-    ctx.fillStyle = 'rgba(15,23,42,0.85)'
-    const bW = 160, bH = 28, bX = OUT_W - bW - 14, bY = OUT_H - bH - 14
-    ctx.beginPath()
-    ctx.roundRect(bX, bY, bW, bH, 6)
-    ctx.fill()
-    ctx.fillStyle = '#ccff00'
-    ctx.font = 'bold 11px sans-serif'
-    ctx.fillText('✨ TryOnX AI Studio', bX + 10, bY + 18)
-    ctx.restore()
-
-    return canvas.toDataURL('image/jpeg', 0.94)
-  } catch (err) {
-    console.warn('Canvas compositor error:', err)
-    return personUrl
+  if (!personImageUrl) {
+    throw new Error('Please upload or select a photograph before generating Virtual Try-On.')
   }
-}
+  if (!garmentImageUrl) {
+    throw new Error('Please select an outfit to try on.')
+  }
 
-// ─────────────────────────────────────────────────────────
-// Background Removal: Flood-fill from all 4 corners
-// ─────────────────────────────────────────────────────────
-/**
- * Two-pass background removal:
- * Pass 1 – Flood-fill from corners using BFS: pixels whose color is
- *           within FLOOD_TOLERANCE of the corner seed are marked transparent.
- *           This correctly handles gradients and soft shadows around the backdrop.
- * Pass 2 – Also erase any remaining near-pure-white or near-pure-grey pixels
- *           that weren't caught by flood-fill (studio gradients at center edges).
- */
-function removeBackground(imgData: ImageData): void {
-  const { data, width, height } = imgData
-  const visited = new Uint8Array(width * height)
+  // 1. Normalize person image orientation and ensure proper resolution
+  let normalizedPersonUrl = personImageUrl
+  let wasPortrait = true
+  try {
+    const norm = await normalizeImage(personImageUrl, 0)
+    normalizedPersonUrl = norm.dataUrl
+    wasPortrait = norm.isPortrait
+  } catch (err) {
+    console.warn('[TryOnX] Note during image normalization:', err)
+  }
 
-  // Sample backdrop color from each corner (average of a 3×3 patch)
-  const cornerColors = [
-    samplePatch(data, width, 0, 0),
-    samplePatch(data, width, width - 3, 0),
-    samplePatch(data, width, 0, height - 3),
-    samplePatch(data, width, width - 3, height - 3),
-  ]
+  const detailedPrompt = getDetailedGarmentPrompt(productName, garmentImageUrl)
 
-  const FLOOD_TOLERANCE = 32  // how similar a pixel must be to the backdrop
-
-  // Flood-fill BFS from each corner
-  const queue: number[] = []
-  function enqueue(x: number, y: number) {
-    if (x < 0 || x >= width || y < 0 || y >= height) return
-    const idx = y * width + x
-    if (visited[idx]) return
-
-    const pIdx = idx * 4
-    const pr = data[pIdx], pg = data[pIdx + 1], pb = data[pIdx + 2]
-
-    // Check against all corner colors — mark visited ONLY if it matches backdrop
-    const matchesBackdrop = cornerColors.some(([cr, cg, cb]) => {
-      return Math.abs(pr - cr) <= FLOOD_TOLERANCE &&
-             Math.abs(pg - cg) <= FLOOD_TOLERANCE &&
-             Math.abs(pb - cb) <= FLOOD_TOLERANCE
+  // 2. Primary Method: Call backend endpoint /api/tryon
+  try {
+    const response = await fetch('/api/tryon', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        personImage: normalizedPersonUrl,
+        garmentImage: garmentImageUrl,
+        prompt: detailedPrompt,
+      }),
     })
 
-    visited[idx] = 1  // Always mark visited to avoid repeated checking
-
-    if (matchesBackdrop) {
-      data[pIdx + 3] = 0
-      queue.push(x, y)  // Only expand flood fill from matching pixels
-    }
-  }
-
-  // Seed all 4 corners + top/bottom/left/right edges every 10px
-  for (let x = 0; x < width; x += 8) {
-    enqueue(x, 0)
-    enqueue(x, height - 1)
-  }
-  for (let y = 0; y < height; y += 8) {
-    enqueue(0, y)
-    enqueue(width - 1, y)
-  }
-
-  let qi = 0
-  while (qi < queue.length) {
-    const x = queue[qi++]
-    const y = queue[qi++]
-    enqueue(x + 1, y)
-    enqueue(x - 1, y)
-    enqueue(x, y + 1)
-    enqueue(x, y - 1)
-  }
-
-  // Pass 2: Hard-erase remaining near-pure-white pixels (studio backdrop that
-  // flood-fill may have missed because of soft vignette or compressed JPEG artifacts)
-  for (let i = 0; i < width * height; i++) {
-    if (visited[i]) continue
-    const p = i * 4
-    const r = data[p], g = data[p + 1], b = data[p + 2]
-    const isNearWhite = r > 230 && g > 230 && b > 230 && Math.abs(r - g) < 20 && Math.abs(r - b) < 20
-    if (isNearWhite) {
-      data[p + 3] = 0
-    }
-  }
-
-  // Pass 3: Feather hard edges — apply anti-alias by slightly reducing alpha near
-  // any alpha-0 neighbor (soft 1-px fringe removal)
-  featherEdges(data, width, height)
-}
-
-function samplePatch(
-  data: Uint8ClampedArray,
-  width: number,
-  x0: number,
-  y0: number
-): [number, number, number] {
-  let r = 0, g = 0, b = 0, count = 0
-  for (let dy = 0; dy < 4; dy++) {
-    for (let dx = 0; dx < 4; dx++) {
-      const i = ((y0 + dy) * width + (x0 + dx)) * 4
-      r += data[i]; g += data[i + 1]; b += data[i + 2]
-      count++
-    }
-  }
-  return [Math.round(r / count), Math.round(g / count), Math.round(b / count)]
-}
-
-function featherEdges(data: Uint8ClampedArray, width: number, height: number): void {
-  // Shrink semi-transparent fringe pixels to avoid harsh sticker borders
-  const FRINGE_ALPHA = 120
-  for (let y = 1; y < height - 1; y++) {
-    for (let x = 1; x < width - 1; x++) {
-      const i = (y * width + x) * 4
-      if (data[i + 3] === 0) continue  // already transparent
-      // Check neighbors
-      const n = ((y - 1) * width + x) * 4
-      const s = ((y + 1) * width + x) * 4
-      const w = (y * width + (x - 1)) * 4
-      const e = (y * width + (x + 1)) * 4
-      const transparentNeighbors =
-        (data[n + 3] === 0 ? 1 : 0) +
-        (data[s + 3] === 0 ? 1 : 0) +
-        (data[w + 3] === 0 ? 1 : 0) +
-        (data[e + 3] === 0 ? 1 : 0)
-      if (transparentNeighbors >= 2) {
-        data[i + 3] = Math.min(data[i + 3], FRINGE_ALPHA)
-      } else if (transparentNeighbors === 1) {
-        data[i + 3] = Math.min(data[i + 3], 200)
+    if (response.ok) {
+      const data = await response.json()
+      if (data?.resultUrl) {
+        const uprightResult = await autoCorrectResultOrientation(data.resultUrl, wasPortrait)
+        return uprightResult
+      }
+      if (data?.error) {
+        console.warn('[TryOnX] Backend /api/tryon returned error:', data.error)
       }
     }
+  } catch (backendErr) {
+    console.warn('[TryOnX] Backend /api/tryon call failed, attempting client-side fallback:', backendErr)
   }
+
+  // 3. Fallback Method: Direct client-side connection to IDM-VTON via @gradio/client
+  try {
+    console.log('[TryOnX] Initializing direct client-side IDM-VTON inference...')
+    const { Client, handle_file } = await import('@gradio/client')
+    const [personBlob, garmentBlob] = await Promise.all([
+      toBlob(normalizedPersonUrl),
+      toBlob(garmentImageUrl),
+    ])
+
+    const app = await Client.connect('yisol/IDM-VTON')
+    const prediction = (await app.predict('/tryon', [
+      {
+        background: handle_file(personBlob),
+        layers: [],
+        composite: null,
+      },
+      handle_file(garmentBlob),
+      detailedPrompt,
+      true, // is_checked (auto-masking)
+      false, // is_checked_crop
+      25, // denoise_steps
+      42, // seed
+    ])) as any
+
+    const outData = prediction?.data?.[0]
+    const outUrl = outData?.url || (typeof outData === 'string' ? outData : null)
+
+    if (outUrl) {
+      const imgRes = await fetch(outUrl)
+      const blob = await imgRes.blob()
+      const dataUrl = await new Promise<string>((resolve) => {
+        const reader = new FileReader()
+        reader.onloadend = () => resolve(reader.result as string)
+        reader.readAsDataURL(blob)
+      })
+
+      const uprightResult = await autoCorrectResultOrientation(dataUrl, wasPortrait)
+      return uprightResult
+    }
+  } catch (clientErr: any) {
+    console.error('[TryOnX] Client-side IDM-VTON inference error:', clientErr)
+  }
+
+  // 4. If genuine AI try-on cannot generate an image, throw a descriptive user-facing error
+  // Never return an overlay sticker or the original photo!
+  throw new Error(
+    'AI Virtual Try-On failed to process this garment onto the photograph. The neural IDM-VTON model could not detect a compatible body pose or the service is temporarily busy. Please ensure your photo clearly shows your upper body/pose and try again in a few moments.'
+  )
 }

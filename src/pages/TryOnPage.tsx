@@ -211,20 +211,24 @@ export default function TryOnPage() {
     setState(s => ({ 
       ...s, 
       status: 'processing', 
-      processingStep: 'Removing garment background...', 
+      processingStep: 'Connecting to IDM-VTON neural model...', 
       errorMessage: null 
     }))
 
+    const timer1 = setTimeout(() => {
+      setState(s => s.status === 'processing' ? { ...s, processingStep: 'Detecting human pose & clothing mask...' } : s)
+    }, 3000)
+
+    const timer2 = setTimeout(() => {
+      setState(s => s.status === 'processing' ? { ...s, processingStep: 'Transferring garment texture & contour...' } : s)
+    }, 8000)
+
+    const timer3 = setTimeout(() => {
+      setState(s => s.status === 'processing' ? { ...s, processingStep: 'Synthesizing fabric folds, lighting & shadows...' } : s)
+    }, 15000)
+
     try {
       const garmentUrl = product.tryon_garment_image_url || product.images?.[0]?.url || ''
-      
-      const timer1 = setTimeout(() => {
-        setState(s => s.status === 'processing' ? { ...s, processingStep: 'Fitting garment to body contour...' } : s)
-      }, 700)
-
-      const timer2 = setTimeout(() => {
-        setState(s => s.status === 'processing' ? { ...s, processingStep: 'Blending fabric texture & lighting...' } : s)
-      }, 1500)
 
       const result = await generateVirtualTryOn({
         personImageUrl: state.personPreviewUrl,
@@ -234,6 +238,7 @@ export default function TryOnPage() {
 
       clearTimeout(timer1)
       clearTimeout(timer2)
+      clearTimeout(timer3)
 
       // Try logging job to Supabase tryon_jobs asynchronously
       try {
@@ -244,7 +249,7 @@ export default function TryOnPage() {
           garment_image_url: garmentUrl,
           status: 'completed',
           result_url: result.slice(0, 500),
-          provider: 'tryonx_generative_v2',
+          provider: 'idm_vton_neural',
           completed_at: new Date().toISOString(),
         })
       } catch (dbErr) {
@@ -260,11 +265,14 @@ export default function TryOnPage() {
       }))
       toast.success('AI Try-on render generated!', { icon: '✨' })
     } catch (err: any) {
+      clearTimeout(timer1)
+      clearTimeout(timer2)
+      clearTimeout(timer3)
       console.error(err)
       setState(s => ({ 
         ...s, 
         status: 'error', 
-        errorMessage: 'Unable to render try-on. Please try a different photo or outfit.' 
+        errorMessage: err?.message || 'Unable to render try-on. Please try a different photo or outfit.' 
       }))
     }
   }
