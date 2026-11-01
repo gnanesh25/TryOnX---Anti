@@ -86,7 +86,7 @@ export async function normalizeImage(
       )
       ctx.restore()
 
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.94)
+      const dataUrl = canvas.toDataURL('image/png')
       resolve({
         dataUrl,
         width: canvas.width,
