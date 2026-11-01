@@ -1,0 +1,233 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 40 33% 95%;
+    --foreground: 0 0% 9%;
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 9%;
+    --primary: 0 0% 9%;
+    --primary-foreground: 40 33% 95%;
+    --secondary: 0 0% 96%;
+    --secondary-foreground: 0 0% 9%;
+    --muted: 0 0% 96%;
+    --muted-foreground: 0 0% 45%;
+    --accent: 78 86% 62%;
+    --accent-foreground: 0 0% 9%;
+    --destructive: 8 100% 64%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 0 0% 89%;
+    --input: 0 0% 89%;
+    --ring: 0 0% 9%;
+    --radius: 0.625rem;
+  }
+
+  .dark {
+    --background: 0 0% 9%;
+    --foreground: 40 33% 95%;
+    --card: 0 0% 12%;
+    --card-foreground: 40 33% 95%;
+    --popover: 0 0% 12%;
+    --popover-foreground: 40 33% 95%;
+    --primary: 78 86% 62%;
+    --primary-foreground: 0 0% 9%;
+    --secondary: 0 0% 15%;
+    --secondary-foreground: 40 33% 95%;
+    --muted: 0 0% 15%;
+    --muted-foreground: 0 0% 60%;
+    --accent: 78 86% 62%;
+    --accent-foreground: 0 0% 9%;
+    --destructive: 8 100% 64%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 0 0% 20%;
+    --input: 0 0% 20%;
+    --ring: 78 86% 62%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    @apply scroll-smooth;
+  }
+
+  body {
+    @apply bg-cream text-ink font-sans antialiased;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-display;
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-ink/20 rounded-full;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-ink/40;
+  }
+
+  /* Selection */
+  ::selection {
+    @apply bg-lime/40 text-ink;
+  }
+}
+
+@layer components {
+  /* Skeleton shimmer */
+  .skeleton {
+    @apply bg-ink/8 rounded animate-pulse;
+    background: linear-gradient(
+      90deg,
+      hsl(0 0% 92%) 25%,
+      hsl(0 0% 88%) 50%,
+      hsl(0 0% 92%) 75%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+  }
+
+  /* Product card hover */
+  .product-card {
+    @apply relative overflow-hidden bg-white rounded-xl transition-all duration-300;
+  }
+  .product-card:hover {
+    @apply shadow-xl -translate-y-1;
+  }
+  .product-card:hover .product-image {
+    @apply scale-105;
+  }
+
+  /* Announcement bar */
+  .announcement-bar {
+    @apply bg-ink text-cream text-xs font-medium py-2.5 text-center tracking-wide;
+  }
+
+  /* Lime accent button */
+  .btn-lime {
+    @apply bg-lime text-ink font-semibold rounded-lg px-6 py-3 transition-all duration-200 hover:bg-lime/90 active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-lime focus-visible:ring-offset-2;
+  }
+
+  /* Ink button */
+  .btn-ink {
+    @apply bg-ink text-cream font-semibold rounded-lg px-6 py-3 transition-all duration-200 hover:bg-ink/90 active:scale-[0.98];
+  }
+
+  /* Ghost button */
+  .btn-ghost {
+    @apply border border-ink/20 text-ink font-semibold rounded-lg px-6 py-3 transition-all duration-200 hover:border-ink/60 hover:bg-ink/5 active:scale-[0.98];
+  }
+
+  /* Coral badge */
+  .badge-coral {
+    @apply bg-coral text-white text-2xs font-bold px-2 py-0.5 rounded uppercase tracking-wider;
+  }
+
+  /* Lime badge */
+  .badge-lime {
+    @apply bg-lime text-ink text-2xs font-bold px-2 py-0.5 rounded uppercase tracking-wider;
+  }
+
+  /* Section heading */
+  .section-heading {
+    @apply font-display font-bold text-display-sm text-ink leading-tight tracking-tight;
+  }
+
+  /* Category pill */
+  .category-pill {
+    @apply inline-flex items-center gap-1.5 bg-white border border-ink/10 rounded-full px-4 py-2 text-sm font-medium text-ink hover:bg-ink hover:text-cream transition-all duration-200 cursor-pointer;
+  }
+
+  /* Filter chip */
+  .filter-chip {
+    @apply inline-flex items-center gap-1 bg-ink/5 border border-ink/10 rounded-full px-3 py-1 text-xs font-medium text-ink hover:bg-ink/10 transition-colors cursor-pointer;
+  }
+  .filter-chip.active {
+    @apply bg-ink text-cream border-ink;
+  }
+
+  /* Nav link */
+  .nav-link {
+    @apply text-sm font-medium text-ink/80 hover:text-ink transition-colors relative;
+  }
+  .nav-link::after {
+    @apply content-[''] absolute bottom-0 left-0 w-0 h-[2px] bg-lime transition-all duration-200;
+  }
+  .nav-link:hover::after,
+  .nav-link.active::after {
+    @apply w-full;
+  }
+
+  /* Glass card */
+  .glass-card {
+    @apply bg-white/80 backdrop-blur-sm border border-white/60 rounded-2xl;
+  }
+
+  /* Try-on indicator */
+  .tryon-badge {
+    @apply inline-flex items-center gap-1 bg-lime/20 text-ink text-xs font-semibold px-2.5 py-1 rounded-full border border-lime/40;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  .scrollbar-hide {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+
+  .line-clamp-2 {
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+
+  .line-clamp-3 {
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+  }
+
+  /* Ink/8 (8% opacity ink) */
+  .bg-ink\/8 {
+    background-color: rgba(23, 23, 23, 0.08);
+  }
+}
+
+/* Animations */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes marquee {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+
+.animate-marquee {
+  animation: marquee 25s linear infinite;
+}
