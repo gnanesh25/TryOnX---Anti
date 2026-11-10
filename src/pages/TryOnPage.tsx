@@ -800,10 +800,56 @@ export default function TryOnPage() {
               </div>
             )}
 
-            {/* Error Message */}
+            {/* Error Message with Inline Token Unlock */}
             {state.errorMessage && (
-              <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-xs rounded-xl">
-                {state.errorMessage}
+              <div className="p-3.5 bg-amber-50 border border-amber-200 text-amber-900 text-xs rounded-xl space-y-2.5">
+                <div className="flex items-start gap-2">
+                  <span className="text-base flex-shrink-0">⚠️</span>
+                  <div className="space-y-1">
+                    <p className="font-bold text-amber-950">AI GPU Model Quota Notice</p>
+                    <p className="text-amber-800 leading-relaxed">{state.errorMessage}</p>
+                  </div>
+                </div>
+
+                <div className="pt-1 border-t border-amber-200/60">
+                  <p className="font-semibold text-[11px] text-amber-900 mb-1.5">
+                    👉 Paste your free Hugging Face Read Token to unlock instant GPU try-on:
+                  </p>
+                  <div className="flex gap-2">
+                    <input
+                      type="password"
+                      value={hfInputVal}
+                      onChange={e => setHfInputVal(e.target.value)}
+                      placeholder="hf_xxxxxxxxxxxxxxxxxxxxxxxxx"
+                      className="flex-1 text-xs px-2.5 py-1.5 rounded-lg border border-amber-300 bg-white font-mono focus:outline-none focus:border-ink"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const trimmed = hfInputVal.trim()
+                        if (trimmed) {
+                          localStorage.setItem('tryonx_hf_token', trimmed)
+                          setHfToken(trimmed)
+                          toast.success('Hugging Face Token connected!')
+                          handleTryOn()
+                        } else {
+                          toast.error('Please enter a valid token')
+                        }
+                      }}
+                      className="px-3 py-1.5 rounded-lg bg-ink text-lime font-bold text-xs hover:bg-black flex-shrink-0"
+                    >
+                      Save & Run
+                    </button>
+                  </div>
+                  <a
+                    href="https://huggingface.co/settings/tokens"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[11px] text-blue-700 hover:underline mt-1.5 inline-block font-medium"
+                  >
+                    Get your free token from Hugging Face (100% free, takes 10 seconds) →
+                  </a>
+                </div>
               </div>
             )}
 

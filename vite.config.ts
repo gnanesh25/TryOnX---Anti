@@ -59,6 +59,8 @@ function tryonApiPlugin(): Plugin {
             const activeToken = hfToken || process.env.HF_TOKEN || process.env.VITE_HF_TOKEN
 
             const vtonSpaces = ['yisol/IDM-VTON', 'Nymbo/Virtual-Try-On']
+            let lastError = ''
+
             for (const space of vtonSpaces) {
               try {
                 console.log(`[TryOnX] Connecting to neural ${space}...`)
@@ -101,18 +103,21 @@ function tryonApiPlugin(): Plugin {
                 }
               } catch (idmErr: any) {
                 const msg = idmErr?.message || ''
+                lastError = msg
                 console.warn(`[TryOnX] ${space} notice:`, msg.slice(0, 160))
               }
             }
 
-            // If public ZeroGPU quota is exceeded, report clean notice to client
-            // so client seamlessly applies subject-preserving fitting on the person's photo
-            res.statusCode = 200
+            // If ZeroGPU quota is exceeded, clearly tell client so user can enter their token
+            const isQuota = lastError.includes('ZeroGPU') || lastError.includes('quota')
+            res.statusCode = isQuota ? 429 : 500
             res.setHeader('Content-Type', 'application/json')
             res.end(JSON.stringify({
               success: false,
-              quotaExceeded: true,
-              message: 'ZeroGPU quota exceeded. Falling back to subject-preserving fitting engine.',
+              quotaExceeded: isQuota,
+              error: isQuota
+                ? 'Hugging Face ZeroGPU quota exceeded for public anonymous requests. Please enter your free Hugging Face Access Token to run dedicated neural virtual try-on.'
+                : lastError || 'Neural virtual try-on model is busy. Please try again shortly.',
             }))
           } catch (err: any) {
             console.error('[TryOnX] Server error:', err)
