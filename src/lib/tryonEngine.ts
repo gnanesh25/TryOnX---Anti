@@ -160,13 +160,32 @@ export async function generateVirtualTryOn(options: TryOnOptions): Promise<strin
 
   const detailedPrompt = getDetailedGarmentPrompt(productName, garmentImageUrl)
 
-  // 2. Call backend /api/tryon (tries Gemini → IDM-VTON → Gemini fallback in sequence)
+  // 2. Pre-fetch garment image to base64 in browser (avoids server-side Amazon CDN blocks)
+  let garmentDataUrl = garmentImageUrl
+  if (!garmentImageUrl.startsWith('data:')) {
+    try {
+      const proxiedUrl = proxyGarmentUrl(garmentImageUrl)
+      const imgRes = await fetch(proxiedUrl)
+      if (imgRes.ok) {
+        const blob = await imgRes.blob()
+        garmentDataUrl = await new Promise<string>((resolve) => {
+          const reader = new FileReader()
+          reader.onloadend = () => resolve(reader.result as string)
+          reader.readAsDataURL(blob)
+        })
+      }
+    } catch (fetchErr) {
+      console.warn('[TryOnX] Could not pre-fetch garment image, sending URL directly:', fetchErr)
+    }
+  }
+
+  // 3. Call backend /api/tryon (5-tier: Gemini → Nymbo → Leffa → OOTDiffusion → Pollinations)
   const response = await fetch('/api/tryon', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       personImage: normalizedPersonUrl,
-      garmentImage: garmentImageUrl,
+      garmentImage: garmentDataUrl,
       prompt: detailedPrompt,
       productName,
     }),
