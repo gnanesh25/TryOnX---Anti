@@ -35,7 +35,9 @@ export default function TryOnPage() {
   const addItem = useCartStore(s => s.addItem)
   const [activeCategoryFilter, setActiveCategoryFilter] = useState<string>('all')
   const [mobileStep, setMobileStep] = useState<1 | 2 | 3>(1)
-  const [hfToken, setHfToken] = useState(() => localStorage.getItem('tryonx_hf_token') || '')
+  const [hfToken, setHfToken] = useState(() => {
+    return (import.meta as any).env?.VITE_HF_TOKEN || localStorage.getItem('tryonx_hf_token') || ''
+  })
   const [showHfModal, setShowHfModal] = useState(false)
   const [hfInputVal, setHfInputVal] = useState('')
 

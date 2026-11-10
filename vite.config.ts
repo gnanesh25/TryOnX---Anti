@@ -1,8 +1,8 @@
-import { defineConfig, Plugin } from 'vite'
+import { defineConfig, loadEnv, Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 import path from 'path'
 
-function tryonApiPlugin(): Plugin {
+function tryonApiPlugin(loadedEnv: Record<string, string>): Plugin {
   return {
     name: 'vite-plugin-tryon-api',
     configureServer(server) {
@@ -55,15 +55,20 @@ function tryonApiPlugin(): Plugin {
               return new Blob([buf], { type: ct })
             }
 
-            // ── Primary: Pretrained Neural IDM-VTON / Nymbo ──────────────────
-            const activeToken = hfToken || process.env.HF_TOKEN || process.env.VITE_HF_TOKEN
+            // ── Pretrained Neural IDM-VTON / Nymbo with User HF Token ──────────
+            const activeToken =
+              hfToken ||
+              process.env.HF_TOKEN ||
+              process.env.VITE_HF_TOKEN ||
+              loadedEnv.HF_TOKEN ||
+              loadedEnv.VITE_HF_TOKEN
 
             const vtonSpaces = ['yisol/IDM-VTON', 'Nymbo/Virtual-Try-On']
             let lastError = ''
 
             for (const space of vtonSpaces) {
               try {
-                console.log(`[TryOnX] Connecting to neural ${space}...`)
+                console.log(`[TryOnX] Connecting to neural ${space} with token auth...`)
                 const { Client, handle_file } = await import('@gradio/client')
 
                 const [pBlob, gBlob] = await Promise.all([
@@ -71,8 +76,13 @@ function tryonApiPlugin(): Plugin {
                   toBlob(garmentImage),
                 ])
 
-                const app = await Client.connect(space, activeToken ? ({ hf_token: activeToken } as any) : undefined)
+                const clientOptions = activeToken
+                  ? ({ token: activeToken, hf_token: activeToken } as any)
+                  : undefined
 
+                const app = await Client.connect(space, clientOptions)
+
+                console.log(`[TryOnX] Submitting to ${space} /tryon...`)
                 const prediction = (await app.predict('/tryon', [
                   {
                     background: handle_file(pBlob),
@@ -108,7 +118,6 @@ function tryonApiPlugin(): Plugin {
               }
             }
 
-            // If ZeroGPU quota is exceeded, clearly tell client so user can enter their token
             const isQuota = lastError.includes('ZeroGPU') || lastError.includes('quota')
             res.statusCode = isQuota ? 429 : 500
             res.setHeader('Content-Type', 'application/json')
@@ -116,7 +125,7 @@ function tryonApiPlugin(): Plugin {
               success: false,
               quotaExceeded: isQuota,
               error: isQuota
-                ? 'Hugging Face ZeroGPU quota exceeded for public anonymous requests. Please enter your free Hugging Face Access Token to run dedicated neural virtual try-on.'
+                ? 'ZeroGPU quota limit reached. Please verify your token has active compute quota.'
                 : lastError || 'Neural virtual try-on model is busy. Please try again shortly.',
             }))
           } catch (err: any) {
@@ -131,28 +140,32 @@ function tryonApiPlugin(): Plugin {
   }
 }
 
-export default defineConfig({
-  plugins: [react(), tryonApiPlugin()],
-  resolve: {
-    alias: {
-      '@': path.resolve(__dirname, './src'),
-    },
-  },
-  server: {
-    port: 5173,
-    proxy: {
-      '/img-proxy': {
-        target: 'https://m.media-amazon.com',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/img-proxy/, ''),
-        secure: false,
-      },
-      '/unsplash-proxy': {
-        target: 'https://images.unsplash.com',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/unsplash-proxy/, ''),
-        secure: false,
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), '')
+
+  return {
+    plugins: [react(), tryonApiPlugin(env)],
+    resolve: {
+      alias: {
+        '@': path.resolve(__dirname, './src'),
       },
     },
-  },
+    server: {
+      port: 5173,
+      proxy: {
+        '/img-proxy': {
+          target: 'https://m.media-amazon.com',
+          changeOrigin: true,
+          rewrite: (path) => path.replace(/^\/img-proxy/, ''),
+          secure: false,
+        },
+        '/unsplash-proxy': {
+          target: 'https://images.unsplash.com',
+          changeOrigin: true,
+          rewrite: (path) => path.replace(/^\/unsplash-proxy/, ''),
+          secure: false,
+        },
+      },
+    },
+  }
 })
