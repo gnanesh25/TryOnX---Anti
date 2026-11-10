@@ -63,8 +63,7 @@ function tryonApiPlugin(): Plugin {
             ])
 
             console.log('[TryOnX IDM-VTON] Submitting to yisol/IDM-VTON neural inference...')
-            const hfToken = process.env.HF_TOKEN || process.env.VITE_HF_TOKEN
-            const app = await Client.connect('yisol/IDM-VTON', hfToken ? ({ hf_token: hfToken } as any) : undefined)
+            const app = await Client.connect('yisol/IDM-VTON')
 
             const prediction = (await app.predict('/tryon', [
               {
@@ -75,8 +74,8 @@ function tryonApiPlugin(): Plugin {
               handle_file(gBlob),
               prompt || 'Photorealistic clothing garment fitted naturally to body',
               true, // is_checked (auto-masking)
-              true, // is_checked_crop (preserves natural human proportions and aspect ratio, no squashing/compression)
-              30, // denoise_steps
+              false, // is_checked_crop
+              25, // denoise_steps
               42, // seed
             ])) as any
 

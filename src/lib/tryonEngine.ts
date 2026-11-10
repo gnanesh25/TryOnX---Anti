@@ -195,8 +195,7 @@ export async function generateVirtualTryOn(options: TryOnOptions): Promise<strin
       toBlob(garmentImageUrl),
     ])
 
-    const hfToken = (import.meta as any).env?.VITE_HF_TOKEN
-    const app = await Client.connect('yisol/IDM-VTON', hfToken ? ({ hf_token: hfToken } as any) : undefined)
+    const app = await Client.connect('yisol/IDM-VTON')
     const prediction = (await app.predict('/tryon', [
       {
         background: handle_file(personBlob),
@@ -206,8 +205,8 @@ export async function generateVirtualTryOn(options: TryOnOptions): Promise<strin
       handle_file(garmentBlob),
       detailedPrompt,
       true, // is_checked (auto-masking)
-      true, // is_checked_crop (preserves natural human proportions and aspect ratio, no squashing/compression)
-      30, // denoise_steps
+      false, // is_checked_crop
+      25, // denoise_steps
       42, // seed
     ])) as any
 
