@@ -196,21 +196,21 @@ export default function TryOnPage() {
     setState(s => ({ 
       ...s, 
       status: 'processing', 
-      processingStep: 'Connecting to IDM-VTON neural model...', 
+      processingStep: '🔮 Connecting to Gemini AI model...', 
       errorMessage: null 
     }))
 
     const timer1 = setTimeout(() => {
-      setState(s => s.status === 'processing' ? { ...s, processingStep: 'Detecting human pose & clothing mask...' } : s)
-    }, 3000)
+      setState(s => s.status === 'processing' ? { ...s, processingStep: '🧠 Analyzing person pose & garment details...' } : s)
+    }, 2500)
 
     const timer2 = setTimeout(() => {
-      setState(s => s.status === 'processing' ? { ...s, processingStep: 'Transferring garment texture & contour...' } : s)
-    }, 8000)
+      setState(s => s.status === 'processing' ? { ...s, processingStep: '👗 Transferring garment texture & fit...' } : s)
+    }, 7000)
 
     const timer3 = setTimeout(() => {
-      setState(s => s.status === 'processing' ? { ...s, processingStep: 'Synthesizing fabric folds, lighting & shadows...' } : s)
-    }, 15000)
+      setState(s => s.status === 'processing' ? { ...s, processingStep: '✨ Synthesizing fabric folds & lighting...' } : s)
+    }, 14000)
 
     try {
       const garmentUrl = product.tryon_garment_image_url || product.images?.[0]?.url || ''

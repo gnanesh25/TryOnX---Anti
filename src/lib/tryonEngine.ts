@@ -160,79 +160,32 @@ export async function generateVirtualTryOn(options: TryOnOptions): Promise<strin
 
   const detailedPrompt = getDetailedGarmentPrompt(productName, garmentImageUrl)
 
-  // 2. Primary Method: Call backend endpoint /api/tryon
-  try {
-    const response = await fetch('/api/tryon', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        personImage: normalizedPersonUrl,
-        garmentImage: garmentImageUrl,
-        prompt: detailedPrompt,
-      }),
-    })
+  // 2. Call backend /api/tryon (tries Gemini → IDM-VTON → Gemini fallback in sequence)
+  const response = await fetch('/api/tryon', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      personImage: normalizedPersonUrl,
+      garmentImage: garmentImageUrl,
+      prompt: detailedPrompt,
+      productName,
+    }),
+  })
 
-    if (response.ok) {
-      const data = await response.json()
-      if (data?.resultUrl) {
-        const uprightResult = await autoCorrectResultOrientation(data.resultUrl, wasPortrait)
-        return uprightResult
-      }
-      if (data?.error) {
-        console.warn('[TryOnX] Backend /api/tryon returned error:', data.error)
-      }
-    }
-  } catch (backendErr) {
-    console.warn('[TryOnX] Backend /api/tryon call failed, attempting client-side fallback:', backendErr)
-  }
-
-  // 3. Fallback Method: Direct client-side connection to IDM-VTON via @gradio/client
-  try {
-    console.log('[TryOnX] Initializing direct client-side IDM-VTON inference...')
-    const { Client, handle_file } = await import('@gradio/client')
-    const [personBlob, garmentBlob] = await Promise.all([
-      toBlob(normalizedPersonUrl),
-      toBlob(garmentImageUrl),
-    ])
-
-    const hfToken = (import.meta as any).env?.VITE_HF_TOKEN
-    const app = await Client.connect('yisol/IDM-VTON', hfToken ? ({ hf_token: hfToken } as any) : undefined)
-    const prediction = (await app.predict('/tryon', [
-      {
-        background: handle_file(personBlob),
-        layers: [],
-        composite: null,
-      },
-      handle_file(garmentBlob),
-      detailedPrompt,
-      true, // is_checked (auto-masking)
-      false, // is_checked_crop
-      25, // denoise_steps
-      42, // seed
-    ])) as any
-
-    const outData = prediction?.data?.[0]
-    const outUrl = outData?.url || (typeof outData === 'string' ? outData : null)
-
-    if (outUrl) {
-      const imgRes = await fetch(outUrl)
-      const blob = await imgRes.blob()
-      const dataUrl = await new Promise<string>((resolve) => {
-        const reader = new FileReader()
-        reader.onloadend = () => resolve(reader.result as string)
-        reader.readAsDataURL(blob)
-      })
-
-      const uprightResult = await autoCorrectResultOrientation(dataUrl, wasPortrait)
+  if (response.ok) {
+    const data = await response.json()
+    if (data?.resultUrl) {
+      const uprightResult = await autoCorrectResultOrientation(data.resultUrl, wasPortrait)
       return uprightResult
     }
-  } catch (clientErr: any) {
-    console.error('[TryOnX] Client-side IDM-VTON inference error:', clientErr)
+    if (data?.error) {
+      throw new Error(data.error)
+    }
   }
 
-  // 4. If genuine AI try-on cannot generate an image, throw a descriptive user-facing error
-  // Never return an overlay sticker or the original photo!
+  const errData = await response.json().catch(() => ({}))
   throw new Error(
-    'AI Virtual Try-On failed to process this garment onto the photograph. The neural IDM-VTON model could not detect a compatible body pose or the service is temporarily busy. Please ensure your photo clearly shows your upper body/pose and try again in a few moments.'
+    (errData as any)?.error ||
+    'AI Virtual Try-On is temporarily unavailable. Please try again in a moment.'
   )
 }
