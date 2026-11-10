@@ -182,10 +182,17 @@ export async function generateVirtualTryOn(options: TryOnOptions): Promise<{ res
 
   // Handle specific errors cleanly without ever falling back to basic 2D stickers
   if (data?.quotaExceeded || data?.error?.includes('ZeroGPU quota')) {
-    const err = new Error(
-      'Hugging Face ZeroGPU quota exceeded for public anonymous requests. Please paste your free Hugging Face Access Token below to unlock dedicated GPU quota for genuine AI Virtual Try-On.'
-    )
+    const rawMsg = data?.error || ''
+    const countdownMatch = rawMsg.match(/Try again in ([0-9:]+)/i)
+    const countdown = countdownMatch ? countdownMatch[1] : null
+
+    const message = activeToken
+      ? `Your Hugging Face account has used its free daily ZeroGPU quota${countdown ? ` (resets in ${countdown})` : ''}. Free accounts get ~2-3 runs per day. To run more right now, paste a token from another free Hugging Face account below (takes 30s to create), or wait for the daily quota reset.`
+      : 'Hugging Face ZeroGPU quota exceeded for public anonymous requests. Please paste a free Hugging Face Access Token below to unlock dedicated GPU quota.'
+
+    const err = new Error(message)
     ;(err as any).requiresToken = true
+    ;(err as any).isAccountQuota = Boolean(activeToken)
     throw err
   }
 

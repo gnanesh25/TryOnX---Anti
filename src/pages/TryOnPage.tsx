@@ -815,7 +815,9 @@ export default function TryOnPage() {
 
                 <div className="pt-1 border-t border-amber-200/60">
                   <p className="font-semibold text-[11px] text-amber-900 mb-1.5">
-                    👉 Paste your free Hugging Face Read Token to unlock instant GPU try-on:
+                    {hfToken 
+                      ? '👉 Paste a token from another free Hugging Face account to continue immediately:'
+                      : '👉 Paste your free Hugging Face Read Token to unlock instant GPU try-on:'}
                   </p>
                   <div className="flex gap-2">
                     <input
