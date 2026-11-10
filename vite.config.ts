@@ -63,7 +63,8 @@ function tryonApiPlugin(): Plugin {
             ])
 
             console.log('[TryOnX IDM-VTON] Submitting to yisol/IDM-VTON neural inference...')
-            const app = await Client.connect('yisol/IDM-VTON')
+            const hfToken = process.env.HF_TOKEN || process.env.VITE_HF_TOKEN
+            const app = await Client.connect('yisol/IDM-VTON', hfToken ? ({ hf_token: hfToken } as any) : undefined)
 
             const prediction = (await app.predict('/tryon', [
               {

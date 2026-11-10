@@ -195,7 +195,8 @@ export async function generateVirtualTryOn(options: TryOnOptions): Promise<strin
       toBlob(garmentImageUrl),
     ])
 
-    const app = await Client.connect('yisol/IDM-VTON')
+    const hfToken = (import.meta as any).env?.VITE_HF_TOKEN
+    const app = await Client.connect('yisol/IDM-VTON', hfToken ? ({ hf_token: hfToken } as any) : undefined)
     const prediction = (await app.predict('/tryon', [
       {
         background: handle_file(personBlob),
