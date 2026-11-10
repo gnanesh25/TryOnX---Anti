@@ -1,6 +1,6 @@
 import { useParams, Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { supabase } from '@/lib/supabase'
+import { fetchCategoryBySlug, fetchProductsByCategorySlug } from '@/lib/productsService'
 import ProductCard from '@/components/product/ProductCard'
 import { ProductGridSkeleton } from '@/components/ui/Skeletons'
 import type { Product, Category } from '@/types'
@@ -11,32 +11,14 @@ export default function CollectionPage() {
 
   const { data: category } = useQuery({
     queryKey: ['category', slug],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from('categories')
-        .select('*')
-        .eq('slug', slug)
-        .single()
-      return data as Category | null
-    },
+    queryFn: () => fetchCategoryBySlug(slug as string),
     enabled: !!slug,
   })
 
   const { data: products, isLoading } = useQuery({
-    queryKey: ['products', 'collection', slug, category?.id],
-    queryFn: async () => {
-      if (!category?.id) return []
-      const { data, error } = await supabase
-        .from('products')
-        .select(`*, images:product_images(*), variants:product_variants(*)`)
-        .eq('is_active', true)
-        .eq('category_id', category.id)
-        .order('created_at', { ascending: false })
-
-      if (error) throw error
-      return (data ?? []) as Product[]
-    },
-    enabled: !!category?.id,
+    queryKey: ['products', 'collection', slug],
+    queryFn: () => fetchProductsByCategorySlug(slug as string),
+    enabled: !!slug,
   })
 
   return (

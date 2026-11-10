@@ -3,6 +3,7 @@ import { useSearchParams, Link } from 'react-router-dom'
 import { Filter, SlidersHorizontal, X, ChevronDown } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
+import { fetchAllProducts } from '@/lib/productsService'
 import ProductCard from '@/components/product/ProductCard'
 import { ProductGridSkeleton } from '@/components/ui/Skeletons'
 import type { Product, ProductFilter } from '@/types'
@@ -16,58 +17,99 @@ const SORT_OPTIONS = [
 ]
 
 async function fetchProducts(filters: ProductFilter) {
-  const selectStr = filters.category ? `
-    *,
-    category:categories!inner(slug, name),
-    images:product_images(*),
-    variants:product_variants(*)
-  ` : `
-    *,
-    category:categories(slug, name),
-    images:product_images(*),
-    variants:product_variants(*)
-  `
+  try {
+    const selectStr = filters.category ? `
+      *,
+      category:categories!inner(slug, name),
+      images:product_images(*),
+      variants:product_variants(*)
+    ` : `
+      *,
+      category:categories(slug, name),
+      images:product_images(*),
+      variants:product_variants(*)
+    `
 
-  let query = supabase
-    .from('products')
-    .select(selectStr, { count: 'exact' })
-    .eq('is_active', true)
+    let query = supabase
+      .from('products')
+      .select(selectStr, { count: 'exact' })
+      .eq('is_active', true)
 
+    if (filters.category) {
+      query = query.eq('category.slug', filters.category)
+    }
+    if (filters.q) {
+      query = query.or(`name.ilike.%${filters.q}%,brand.ilike.%${filters.q}%,tags.cs.{${filters.q}}`)
+    }
+    if (filters.supports_tryon) {
+      query = query.eq('supports_tryon', true)
+    }
+    if (filters.min_price) {
+      query = query.gte('selling_price_paise', filters.min_price * 100)
+    }
+    if (filters.max_price) {
+      query = query.lte('selling_price_paise', filters.max_price * 100)
+    }
+
+    // Sorting
+    switch (filters.sort) {
+      case 'price_asc':
+        query = query.order('selling_price_paise', { ascending: true })
+        break
+      case 'price_desc':
+        query = query.order('selling_price_paise', { ascending: false })
+        break
+      default:
+        query = query.order('created_at', { ascending: false })
+    }
+
+    const page = filters.page ?? 1
+    const pageSize = filters.page_size ?? 28
+    query = query.range((page - 1) * pageSize, page * pageSize - 1)
+
+    const { data, count, error } = await query
+    if (!error && data && data.length > 0) {
+      return { products: data as Product[], total: count ?? data.length }
+    }
+  } catch (err) {
+    console.warn('[ShopPage] Supabase offline, using local catalog filter:', err)
+  }
+
+  // Fallback to verified catalog
+  let list = (await fetchAllProducts()) as Product[]
   if (filters.category) {
-    query = query.eq('category.slug', filters.category)
+    const cat = filters.category.toLowerCase()
+    list = list.filter(p => {
+      const s = (p.category?.slug || '').toLowerCase()
+      const tags = (p.tags || []).map(t => t.toLowerCase())
+      return s.includes(cat) || tags.includes(cat)
+    })
   }
   if (filters.q) {
-    query = query.or(`name.ilike.%${filters.q}%,brand.ilike.%${filters.q}%,tags.cs.{${filters.q}}`)
+    const q = filters.q.toLowerCase()
+    list = list.filter(p => p.name.toLowerCase().includes(q) || (p.brand || '').toLowerCase().includes(q))
   }
   if (filters.supports_tryon) {
-    query = query.eq('supports_tryon', true)
+    list = list.filter(p => p.supports_tryon)
   }
   if (filters.min_price) {
-    query = query.gte('selling_price_paise', filters.min_price * 100)
+    list = list.filter(p => p.selling_price_paise >= filters.min_price! * 100)
   }
   if (filters.max_price) {
-    query = query.lte('selling_price_paise', filters.max_price * 100)
+    list = list.filter(p => p.selling_price_paise <= filters.max_price! * 100)
   }
 
-  // Sorting
-  switch (filters.sort) {
-    case 'price_asc':
-      query = query.order('selling_price_paise', { ascending: true })
-      break
-    case 'price_desc':
-      query = query.order('selling_price_paise', { ascending: false })
-      break
-    default:
-      query = query.order('created_at', { ascending: false })
+  if (filters.sort === 'price_asc') {
+    list.sort((a, b) => a.selling_price_paise - b.selling_price_paise)
+  } else if (filters.sort === 'price_desc') {
+    list.sort((a, b) => b.selling_price_paise - a.selling_price_paise)
   }
 
   const page = filters.page ?? 1
   const pageSize = filters.page_size ?? 28
-  query = query.range((page - 1) * pageSize, page * pageSize - 1)
+  const pagedList = list.slice((page - 1) * pageSize, page * pageSize)
 
-  const { data, count, error } = await query
-  if (error) throw error
-  return { products: (data ?? []) as Product[], total: count ?? 0 }
+  return { products: pagedList, total: list.length }
 }
 
 export default function ShopPage() {

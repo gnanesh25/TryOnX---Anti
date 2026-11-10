@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
+import { fetchProductBySlug, fetchAllProducts } from '@/lib/productsService'
 import { ShoppingBag, Heart, Zap, ChevronLeft, ChevronRight, Star, Truck, RefreshCcw, Shield } from 'lucide-react'
 import { toast } from 'sonner'
 import { motion, AnimatePresence } from 'motion/react'
@@ -25,34 +26,17 @@ export default function ProductPage() {
 
   const { data: product, isLoading } = useQuery({
     queryKey: ['product', slug],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('products')
-        .select(`
-          *,
-          images:product_images(*),
-          variants:product_variants(*)
-        `)
-        .eq('slug', slug)
-        .eq('is_active', true)
-        .single()
-      if (error) throw error
-      return data as Product
-    },
+    queryFn: () => fetchProductBySlug(slug as string),
     enabled: !!slug,
   })
 
   const { data: relatedProducts } = useQuery({
     queryKey: ['products', 'related', product?.category_id],
     queryFn: async () => {
-      const { data } = await supabase
-        .from('products')
-        .select(`*, images:product_images(*), variants:product_variants(*)`)
-        .eq('is_active', true)
-        .eq('category_id', product!.category_id as string)
-        .neq('id', product!.id)
-        .limit(4)
-      return (data ?? []) as Product[]
+      const all = await fetchAllProducts()
+      return all
+        .filter(p => p.category_id === product?.category_id && p.id !== product?.id)
+        .slice(0, 4) as Product[]
     },
     enabled: !!product?.category_id,
   })

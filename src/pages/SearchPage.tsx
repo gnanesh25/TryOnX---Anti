@@ -1,6 +1,6 @@
 import { useSearchParams, Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { supabase } from '@/lib/supabase'
+import { searchProducts } from '@/lib/productsService'
 import { Search } from 'lucide-react'
 import ProductCard from '@/components/product/ProductCard'
 import { ProductGridSkeleton } from '@/components/ui/Skeletons'
@@ -12,17 +12,7 @@ export default function SearchPage() {
 
   const { data, isLoading } = useQuery({
     queryKey: ['search', q],
-    queryFn: async () => {
-      if (!q.trim()) return []
-      const { data, error } = await supabase
-        .from('products')
-        .select(`*, images:product_images(*), variants:product_variants(*)`)
-        .eq('is_active', true)
-        .or(`name.ilike.%${q}%,brand.ilike.%${q}%,description.ilike.%${q}%`)
-        .limit(24)
-      if (error) throw error
-      return (data ?? []) as Product[]
-    },
+    queryFn: () => searchProducts(q),
     enabled: !!q.trim(),
   })
 

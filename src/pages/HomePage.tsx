@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { ArrowRight, Zap, Sparkles, ShoppingBag, Star, ChevronRight, Filter } from 'lucide-react'
 import { motion } from 'motion/react'
 import { useQuery } from '@tanstack/react-query'
-import { supabase } from '@/lib/supabase'
+import { fetchAllProducts } from '@/lib/productsService'
 import ProductCard from '@/components/product/ProductCard'
 import { ProductGridSkeleton } from '@/components/ui/Skeletons'
 import { cn } from '@/lib/utils'
@@ -20,22 +20,7 @@ const CATEGORIES = [
 function useAllProducts() {
   return useQuery({
     queryKey: ['products-home-all'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('products')
-        .select(`
-          *,
-          category:categories(slug, name),
-          images:product_images(*),
-          variants:product_variants(*)
-        `)
-        .eq('is_active', true)
-        .order('created_at', { ascending: true })
-        .limit(60)
-
-      if (error) throw error
-      return (data ?? []) as (Product & { category?: { slug: string; name: string } })[]
-    },
+    queryFn: () => fetchAllProducts(),
   })
 }
 

@@ -10,6 +10,7 @@ import { cn, formatPrice } from '@/lib/utils'
 import { useCartStore } from '@/store/cartStore'
 import { generateVirtualTryOn, SAMPLE_MODELS } from '@/lib/tryonEngine'
 import { normalizeImage, rotateImageDataUrl } from '@/lib/imageUtils'
+import { fetchProductById, fetchTryOnProducts } from '@/lib/productsService'
 import type { Product } from '@/types'
 import { toast } from 'sonner'
 
@@ -47,30 +48,14 @@ export default function TryOnPage() {
   // Fetch selected product
   const { data: product } = useQuery({
     queryKey: ['product-tryon', productId],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from('products')
-        .select(`*, images:product_images(*), variants:product_variants(*)`)
-        .eq('id', productId as string)
-        .eq('supports_tryon', true)
-        .single()
-      return data as Product | null
-    },
+    queryFn: () => fetchProductById(productId as string),
     enabled: !!productId,
   })
 
   // Fetch all try-on products
   const { data: tryonProducts } = useQuery({
     queryKey: ['products-tryon-all'],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from('products')
-        .select(`*, category:categories(slug, name), images:product_images(*)`)
-        .eq('is_active', true)
-        .eq('supports_tryon', true)
-        .order('created_at', { ascending: true })
-      return (data ?? []) as (Product & { category?: { slug: string; name: string } })[]
-    },
+    queryFn: () => fetchTryOnProducts(),
   })
 
   // Auto-select first product if none selected
