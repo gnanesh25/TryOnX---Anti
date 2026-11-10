@@ -1,6 +1,7 @@
 /**
  * Image Orientation and Canvas Normalization Utilities
  * Solves EXIF rotation issues, handles upright normalization, and provides manual/auto rotation.
+ * Normalizes input photos to native 3:4 aspect ratio (768x1024) to eliminate compression/squashing.
  */
 
 export interface NormalizedImageResult {
@@ -12,8 +13,8 @@ export interface NormalizedImageResult {
 
 /**
  * Normalizes an image (from File or URL) onto an HTML5 Canvas.
- * Bakes the true physical orientation into the pixel buffer so AI models and browsers
- * see the image genuinely upright without relying on fragile EXIF metadata.
+ * Bakes true physical orientation and 3:4 aspect ratio into the pixel buffer
+ * so IDM-VTON neural models and browsers see natural, uncompressed human body proportions.
  */
 export async function normalizeImage(
   source: File | string,
@@ -45,53 +46,65 @@ export async function normalizeImage(
       const normalizedRotation = ((rotateClockwiseDegrees % 360) + 360) % 360
       const is90or270 = normalizedRotation === 90 || normalizedRotation === 270
 
-      // Scale down large images (e.g. 12MP phone photos) to max 1200px for AI efficiency & fidelity
-      const MAX_DIM = 1200
-      let targetWidth = origWidth
-      let targetHeight = origHeight
+      const rotatedW = is90or270 ? origHeight : origWidth
+      const rotatedH = is90or270 ? origWidth : origHeight
 
-      if (targetWidth > MAX_DIM || targetHeight > MAX_DIM) {
-        if (targetWidth > targetHeight) {
-          targetHeight = Math.round((targetHeight * MAX_DIM) / targetWidth)
-          targetWidth = MAX_DIM
-        } else {
-          targetWidth = Math.round((targetWidth * MAX_DIM) / targetHeight)
-          targetHeight = MAX_DIM
-        }
+      // Compute source crop rect to get natural 3:4 ratio without squashing or stretching
+      const targetRatio = 3 / 4 // 0.75
+      const currentRatio = rotatedW / rotatedH
+      let sW = rotatedW
+      let sH = rotatedH
+      let sX = 0
+      let sY = 0
+
+      if (currentRatio < targetRatio) {
+        // Narrower/taller than 3:4 (e.g. phone portrait 9:16)
+        sH = Math.round(rotatedW / targetRatio)
+        sY = Math.max(0, Math.round((rotatedH - sH) * 0.12)) // anchor near top to keep head & shoulders
+        if (sY + sH > rotatedH) sY = rotatedH - sH
+      } else if (currentRatio > targetRatio) {
+        // Wider than 3:4
+        sW = Math.round(rotatedH * targetRatio)
+        sX = Math.round((rotatedW - sW) / 2) // center horizontally
       }
 
+      // Native 3:4 resolution for IDM-VTON
+      const CANVAS_W = 768
+      const CANVAS_H = 1024
+
       const canvas = document.createElement('canvas')
-      canvas.width = is90or270 ? targetHeight : targetWidth
-      canvas.height = is90or270 ? targetWidth : targetHeight
+      canvas.width = CANVAS_W
+      canvas.height = CANVAS_H
 
       const ctx = canvas.getContext('2d', { willReadFrequently: true })
       if (!ctx) {
         throw new Error('Canvas 2D context unavailable')
       }
 
-      // Fill canvas background with clean white for safety
+      // Fill with neutral backdrop
       ctx.fillStyle = '#ffffff'
-      ctx.fillRect(0, 0, canvas.width, canvas.height)
+      ctx.fillRect(0, 0, CANVAS_W, CANVAS_H)
 
-      // Apply rotation transformation from center
-      ctx.save()
-      ctx.translate(canvas.width / 2, canvas.height / 2)
-      ctx.rotate((normalizedRotation * Math.PI) / 180)
-      ctx.drawImage(
-        imageSource,
-        -targetWidth / 2,
-        -targetHeight / 2,
-        targetWidth,
-        targetHeight
-      )
-      ctx.restore()
+      if (normalizedRotation !== 0) {
+        const rotCanvas = document.createElement('canvas')
+        rotCanvas.width = rotatedW
+        rotCanvas.height = rotatedH
+        const rCtx = rotCanvas.getContext('2d')!
+        rCtx.translate(rotatedW / 2, rotatedH / 2)
+        rCtx.rotate((normalizedRotation * Math.PI) / 180)
+        rCtx.drawImage(imageSource, -origWidth / 2, -origHeight / 2, origWidth, origHeight)
 
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.94)
+        ctx.drawImage(rotCanvas, sX, sY, sW, sH, 0, 0, CANVAS_W, CANVAS_H)
+      } else {
+        ctx.drawImage(imageSource, sX, sY, sW, sH, 0, 0, CANVAS_W, CANVAS_H)
+      }
+
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.95)
       resolve({
         dataUrl,
-        width: canvas.width,
-        height: canvas.height,
-        isPortrait: canvas.height >= canvas.width,
+        width: CANVAS_W,
+        height: CANVAS_H,
+        isPortrait: true,
       })
     } catch (err) {
       reject(err)
@@ -112,8 +125,8 @@ export async function rotateImageDataUrl(
 
 /**
  * Auto-corrects the generated virtual try-on result.
- * If the input user photo was portrait (height >= width), but the AI engine returned a landscape image
- * (width > height), automatically rotate it 90 degrees clockwise so it is never displayed sideways!
+ * If the input user photo was portrait, but the AI engine returned a landscape image,
+ * automatically rotate it 90 degrees clockwise.
  */
 export async function autoCorrectResultOrientation(
   resultDataUrl: string,
@@ -124,7 +137,6 @@ export async function autoCorrectResultOrientation(
     img.crossOrigin = 'anonymous'
     img.onload = async () => {
       const isLandscape = img.width > img.height
-      // If reference was portrait but result came back landscape, rotate 90 degrees CW!
       if (referenceWasPortrait && isLandscape) {
         try {
           const corrected = await rotateImageDataUrl(resultDataUrl, 90)
