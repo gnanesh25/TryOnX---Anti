@@ -25,6 +25,7 @@ interface TryOnState {
   resultUrl: string | null
   errorMessage: string | null
   showOriginal: boolean
+  provider: string | null
 }
 
 export default function TryOnPage() {
@@ -34,6 +35,9 @@ export default function TryOnPage() {
   const addItem = useCartStore(s => s.addItem)
   const [activeCategoryFilter, setActiveCategoryFilter] = useState<string>('all')
   const [mobileStep, setMobileStep] = useState<1 | 2 | 3>(1)
+  const [hfToken, setHfToken] = useState(() => localStorage.getItem('tryonx_hf_token') || '')
+  const [showHfModal, setShowHfModal] = useState(false)
+  const [hfInputVal, setHfInputVal] = useState('')
 
   const [state, setState] = useState<TryOnState>({
     personImage: null,
@@ -43,6 +47,7 @@ export default function TryOnPage() {
     resultUrl: null,
     errorMessage: null,
     showOriginal: false,
+    provider: null,
   })
 
   // Fetch selected product
@@ -215,37 +220,23 @@ export default function TryOnPage() {
     try {
       const garmentUrl = product.tryon_garment_image_url || product.images?.[0]?.url || ''
 
-      const result = await generateVirtualTryOn({
+      const { resultUrl, provider } = await generateVirtualTryOn({
         personImageUrl: state.personPreviewUrl,
         garmentImageUrl: garmentUrl,
         productName: product.name,
+        hfToken: hfToken || undefined,
       })
 
       clearTimeout(timer1)
       clearTimeout(timer2)
       clearTimeout(timer3)
 
-      // Try logging job to Supabase tryon_jobs asynchronously
-      try {
-        await supabase.from('tryon_jobs').insert({
-          session_id: 'guest_session',
-          product_id: product.id,
-          person_image_url: state.personPreviewUrl.slice(0, 500),
-          garment_image_url: garmentUrl,
-          status: 'completed',
-          result_url: result.slice(0, 500),
-          provider: 'idm_vton_neural',
-          completed_at: new Date().toISOString(),
-        })
-      } catch (dbErr) {
-        console.warn('Tryon job log skipped:', dbErr)
-      }
-
       setState(s => ({
         ...s,
         status: 'done',
         processingStep: 'Complete',
-        resultUrl: result,
+        resultUrl,
+        provider,
         errorMessage: null,
       }))
       toast.success('AI Try-on render generated!', { icon: '✨' })
@@ -701,10 +692,113 @@ export default function TryOnPage() {
               {state.resultUrl && !state.showOriginal && (
                 <div className="absolute top-3 left-3 bg-ink/80 backdrop-blur-md text-lime text-[11px] font-bold px-2.5 py-1 rounded-full border border-lime/30 flex items-center gap-1.5 shadow-lg">
                   <Sparkles size={12} />
-                  AI Generated
+                  {state.provider === 'idm_vton_neural' ? '🚀 Neural IDM-VTON' : '✨ TryOnX AI Studio'}
                 </div>
               )}
             </div>
+
+            {/* Hugging Face Token Settings Banner */}
+            <div className="p-2.5 bg-gray-50 border border-gray-200 rounded-xl flex items-center justify-between gap-2 text-xs">
+              <div className="flex items-center gap-1.5 truncate">
+                <span className="text-[14px]">⚡</span>
+                <span className="text-gray-700 font-medium truncate">
+                  {hfToken ? 'HF Token Active' : 'Neural GPU (ZeroGPU)'}
+                </span>
+                {hfToken && (
+                  <span className="text-[10px] bg-green-100 text-green-700 font-bold px-1.5 py-0.5 rounded">
+                    Connected
+                  </span>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setHfInputVal(hfToken)
+                  setShowHfModal(true)
+                }}
+                className="text-[11px] font-bold text-ink underline hover:text-lime-700 flex-shrink-0"
+              >
+                {hfToken ? 'Change' : 'Add Free Token'}
+              </button>
+            </div>
+
+            {/* HF Token Modal */}
+            {showHfModal && (
+              <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                <div className="bg-white rounded-2xl max-w-md w-full p-5 space-y-4 shadow-xl border border-gray-200">
+                  <div className="flex items-center justify-between border-b pb-3">
+                    <h3 className="font-display font-bold text-base text-gray-900">
+                      ⚡ Hugging Face Access Token
+                    </h3>
+                    <button
+                      type="button"
+                      onClick={() => setShowHfModal(false)}
+                      className="text-gray-400 hover:text-gray-600"
+                    >
+                      <X size={18} />
+                    </button>
+                  </div>
+                  <p className="text-xs text-gray-600 leading-relaxed">
+                    A free Hugging Face Read Token unlocks high ZeroGPU priority for IDM-VTON neural diffusion try-on directly on your personal quota.
+                  </p>
+                  <div>
+                    <label className="text-[11px] font-bold text-gray-700 uppercase tracking-wider block mb-1">
+                      Token (hf_...)
+                    </label>
+                    <input
+                      type="password"
+                      value={hfInputVal}
+                      onChange={e => setHfInputVal(e.target.value)}
+                      placeholder="hf_xxxxxxxxxxxxxxxxxxxxxxxxx"
+                      className="w-full text-xs p-2.5 rounded-lg border border-gray-300 focus:outline-none focus:border-ink font-mono"
+                    />
+                    <a
+                      href="https://huggingface.co/settings/tokens"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[11px] text-blue-600 hover:underline mt-1 inline-block"
+                    >
+                      Get your free token from Hugging Face →
+                    </a>
+                  </div>
+                  <div className="flex items-center justify-end gap-2 pt-2">
+                    {hfToken && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          localStorage.removeItem('tryonx_hf_token')
+                          setHfToken('')
+                          setHfInputVal('')
+                          setShowHfModal(false)
+                          toast.success('HF Token removed')
+                        }}
+                        className="px-3 py-1.5 rounded-lg text-xs font-semibold text-red-600 hover:bg-red-50"
+                      >
+                        Remove Token
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const trimmed = hfInputVal.trim()
+                        if (trimmed) {
+                          localStorage.setItem('tryonx_hf_token', trimmed)
+                          setHfToken(trimmed)
+                          toast.success('Hugging Face Token saved!')
+                        } else {
+                          localStorage.removeItem('tryonx_hf_token')
+                          setHfToken('')
+                        }
+                        setShowHfModal(false)
+                      }}
+                      className="px-4 py-2 rounded-lg text-xs font-bold bg-ink text-lime hover:bg-black"
+                    >
+                      Save Token
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Error Message */}
             {state.errorMessage && (
