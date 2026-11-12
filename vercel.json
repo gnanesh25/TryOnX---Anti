@@ -1,0 +1,21 @@
+{
+  "framework": "vite",
+  "rewrites": [
+    {
+      "source": "/img-proxy/:match*",
+      "destination": "https://m.media-amazon.com/:match*"
+    },
+    {
+      "source": "/unsplash-proxy/:match*",
+      "destination": "https://images.unsplash.com/:match*"
+    },
+    {
+      "source": "/api/tryon",
+      "destination": "/api/tryon"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
+}
